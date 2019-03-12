@@ -8,6 +8,7 @@ import std.conv: to;
 import std.string;
 import std.socket;
 import core.sys.posix.unistd;
+import core.stdc.errno;
 
 import hci_lib;
 import hci;
@@ -77,17 +78,30 @@ public:
 	}
 	int bconnect(string address)
 	{
-		int res, timeout;
-		auto dest = toStringz(address);
+		int res;
 		this.sock = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
+
 		sockaddr_rc addr;
 		addr.rc_family = AF_BLUETOOTH;
 		addr.rc_channel = 1;
 
+		auto dest = toStringz(address);
+		writeln("Connection to ",address);
+		
 		str2ba( dest, &addr.rc_bdaddr );
-		writeln(addr);
 		res = connect(sock, cast(const(sockaddr*))&addr, cast(uint)addr.sizeof);
 		return res;
+	}
+	string brecv(ulong size){
+		char *resp = cast(char*)malloc(size);
+		writeln("Attempting to read ", size, " bytes");
+		long i = recv(this.sock, cast(void*)resp, size, 0);
+		writeln("Got ", i, " bytes");
+		if(i<0) {
+			auto msg = "Can't read from socket; Error: "~strerror(errno).to!string;
+			throw new Exception(msg);
+		}
+		return to!string(resp[0..i]);
 	}
 	~this(){
 		close(sock);
