@@ -3,30 +3,22 @@ import bluez;
 import bluetooth;
 import std.file;
 import std.conv;
+import std.string;
 import core.exception;
 void main(){
-	string address="00:81:F9:12:B0:95";
-	/*
-	auto reader = new MindwaveMobileRawReader(address);
-	reader.connectToMindWaveMobile();
-	char[] bytes = reader.getBytes(100000);
-	std.file.write("bytes",bytes);
-	
-	*/
-/*	char[] bytes = new char[100000];
-	bytes = cast(char[])std.file.read("bytes",100000);
-	string data=bytes.to!string;
-	auto parser = new MindwavePacketPayloadParser(data);
-	writeln(parser.parseDataPoints);
-*/
+	//string address="00:81:F9:12:B0:95";
+	string address=null;
 	auto fullReader = new MindwaveDataPointReader(address);
 	fullReader.start();
 	if (fullReader.isConnected)
 	{
 		while(true){
 			string dataPoint = fullReader.readNextDataPoint();
-			if(dataPoint!="RawDataPoint")
+			if(dataPoint!="RawDataPoint"){
+				if(dataPoint.indexOf("PoorSignalLevelDataPoint")>-1)
+					writeln("----------");
 				writeln(dataPoint);
+			}
 		}
 	}
 }
@@ -218,13 +210,31 @@ public:
     		case '\x80':
             	return "RawDataPoint";
     		case '\x83':
-            	return "EEGPowersDataPoint";
+            	return "EEGPowersDataPoint: "~EEGPowersDataPoint(dataRowValueBytes);
     		case '\xba':
     		case '\xbc':
             	return "UnknownDataPoint";
     		default:
     			return ""~dataRowCode;
     	}
+	}
+	string EEGPowersDataPoint(string dataValueBytes)
+	{
+		int delta = this.toBigEn(dataValueBytes[0..3]);
+        int theta = this.toBigEn(dataValueBytes[3..6]);
+        int lowAlpha = this.toBigEn(dataValueBytes[6..9]);
+        int highAlpha = this.toBigEn(dataValueBytes[9..12]);
+        int lowBeta = this.toBigEn(dataValueBytes[12..15]);
+        int highBeta = this.toBigEn(dataValueBytes[15..18]);
+        int lowGamma = this.toBigEn(dataValueBytes[18..21]);
+        int midGamma = this.toBigEn(dataValueBytes[21..24]);
+		return "{\"delta\": \""~delta.to!string~"\", \"theta\": \""~theta.to!string~"\", \"lowAlpha\": \""~lowAlpha.to!string~"\", \"highAlpha\": \""~highAlpha.to!string~"\", \"lowBeta\": \""~lowBeta.to!string~"\", \"highBeta\": \""~highBeta.to!string~"\", \"lowGamma\": \""~lowGamma.to!string~"\", \"midGamma\": \""~midGamma.to!string~"\"}";
+	}
+	int toBigEn(string threeBytes){
+		int bigEndianInteger = (threeBytes[0] << 16) |
+         (((1 << 16) - 1) & (threeBytes[1] << 8)) |
+          ((1 << 8) - 1) & threeBytes[2];
+        return bigEndianInteger;
 	}
 }
 
