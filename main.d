@@ -1,11 +1,140 @@
 import std.stdio;
 import bluez;
 import bluetooth;
-
+import std.file;
+import std.conv;
+import core.exception;
 void main(){
+	/*
 	auto reader = new MindwaveMobileRawReader("00:81:F9:12:B0:95");
 	reader.connectToMindWaveMobile();
-	writeln(reader.getBytes(100));
+	char[] bytes = reader.getBytes(100000);
+	std.file.write("bytes",bytes);
+	
+	*/
+	char[] bytes = new char[100000];
+	bytes = cast(char[])std.file.read("bytes",100000);
+	string data=bytes.to!string;
+	auto parser = new MindwavePacketPayloadParser(data);
+	writeln(parser.parseDataPoints);
+
+}
+
+class MindwaveDataPointReader
+{
+private:
+	MindwaveMobileRawReader rawReader;
+public:
+	this(string address=null){
+		rawReader = new MindwaveMobileRawReader(address);
+
+	}
+}
+
+abstract class DataPoint
+{
+private:
+	string _dataValueBytes;
+}
+
+
+class MindwavePacketPayloadParser{
+	char EXTENDED_CODE_BYTE = 0x55;
+	int _payloadIndex;
+	string _payloadBytes;
+public:
+	this(string payloadBytes){
+		this._payloadBytes=payloadBytes;
+		this._payloadIndex=0;
+	}
+	string[] parseDataPoints(){
+		string[] dataPoints;
+		while(!this._atEndOfPayloadBytes){
+			try{
+				string dataPoint = this._parseOneDataPoint();
+				dataPoints~=dataPoint;
+			}catch(core.exception.RangeError){
+				break;
+			}
+		}
+		return dataPoints;
+	}
+	bool _atEndOfPayloadBytes(){
+		return this._payloadIndex == this._payloadBytes.length;
+	}
+	string _parseOneDataPoint(){
+		char dataRowCode = this._extractDataRowCode();
+        string dataRowValueBytes = this._extractDataRowValueBytes(dataRowCode);
+        return this._createDataPoint(dataRowCode, dataRowValueBytes);
+	}
+	char _extractDataRowCode(){
+        return this._ignoreExtendedCodeBytesAndGetRowCode();
+	}
+        
+    char _ignoreExtendedCodeBytesAndGetRowCode(){
+        //# EXTENDED_CODE_BYTES seem not to be used according to 
+        //# http://wearcam.org/ece516/mindset_communications_protocol.pdf
+        //# (August 2012)
+        //# so we ignore them
+        char b = this._getNextByte();
+        while (b == EXTENDED_CODE_BYTE)
+            b = this._getNextByte();
+        return b;
+    }
+       
+    char _getNextByte(){
+        char nextByte = this._payloadBytes[this._payloadIndex];
+        this._payloadIndex++;
+        return nextByte;
+    }
+
+    string _getNextBytes(uint amountOfBytes){
+    	writeln(amountOfBytes);
+        string nextBytes = this._payloadBytes[this._payloadIndex..(this._payloadIndex + amountOfBytes)];
+        this._payloadIndex += amountOfBytes;
+        return nextBytes;
+    }
+    
+    string _extractDataRowValueBytes(char dataRowCode){
+        uint lengthOfValueBytes = this._extractLengthOfValueBytes(dataRowCode);
+        string dataRowValueBytes = this._getNextBytes(lengthOfValueBytes);
+        return dataRowValueBytes;
+    }
+       
+    uint _extractLengthOfValueBytes(char dataRowCode){
+        //# If code is one of the mysterious initial code values
+        //# return before the extended code check
+        if(dataRowCode == '\xBA' || dataRowCode == '\xBC')
+            return 1;
+
+        bool dataRowHasLengthByte = dataRowCode > '\x7f';
+        if (dataRowHasLengthByte)
+            return this._getNextByte();
+        else
+            return 1;
+    }
+        
+    string _createDataPoint(char dataRowCode, string dataRowValueBytes){
+    	switch(dataRowCode){
+    		case '\x02':
+    			return "PoorSignalLevelDataPoint";
+    		case '\x04':
+            	return "AttentionDataPoint";
+    		case '\x05':
+            	return "MeditationDataPoint";
+    		case '\x16':
+            	return "BlinkDataPoint";
+    		case '\x80':
+            	return "RawDataPoint";
+    		case '\x83':
+            	return "EEGPowersDataPoint";
+    		case '\xba':
+    		case '\xbc':
+            	return "UnknownDataPoint";
+    		default:
+    			return ""~dataRowCode;
+    	}
+	}
 }
 
 class MindwaveMobileRawReader
@@ -66,11 +195,12 @@ private:
 	char _getNextByte(){
 		//char nextByte = ord(this._buffer[this._bufferPosition]);
 		char nextByte = this._buffer[this._bufferPosition];
-        this._bufferPosition += 1;
+        this._bufferPosition++;
         return nextByte;
 	}
 	char[] _getNextBytes(int size){
-		char[] bytes = new char[size];
+		char[] bytes = this._buffer[this._bufferPosition..size];
+		this._bufferPosition+=size;
 		return bytes;
 	}
 	ulong _bufferSize(){
@@ -94,9 +224,10 @@ public:
 	bool isConnected(){
 		return _isConnected;
 	}
-	int peekByte(){
-		return 1;
-	}
+/*	char peekByte(){
+		this._ensureMoreBytesCanBeRead();
+        return this._buffer[this._bufferPosition];
+	}*/
 	char getByte(){
 		this._ensureMoreBytesCanBeRead(100);
 		return this._getNextByte();
@@ -105,5 +236,8 @@ public:
 		this._ensureMoreBytesCanBeRead(size);
 		return this._getNextBytes(size);
 	}
-	void clearAlreadyReadBuffer(){}
+	void clearAlreadyReadBuffer(){
+		_buffer=_buffer[_bufferPosition..$];
+		_bufferPosition=0;
+	}
 }

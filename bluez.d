@@ -96,6 +96,8 @@ public:
 		char *resp = cast(char*)malloc(size);
 		writeln("Attempting to read ", size, " bytes");
 		long i = recv(this.sock, cast(void*)resp, size, 0);
+		//writeln(resp[0..i]);
+		//writeln(to!string(resp[0..i]));
 		writeln("Got ", i, " bytes");
 		if(i<0) {
 			auto msg = "Can't read from socket; Error: "~strerror(errno).to!string;
